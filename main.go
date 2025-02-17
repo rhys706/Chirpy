@@ -1,11 +1,18 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"sync/atomic"
+
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+	"github.com/rhys706/chirpy/internal/database"
 )
 
 type apiConfig struct {
@@ -37,6 +44,17 @@ func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Fileserver hit counter reset"))
 }
 
+func profanity_replacer(tweet string) string {
+	word_list := strings.Split(tweet, " ")
+	for i, word := range word_list {
+		if strings.ToLower(word) == "kerfuffle" || strings.ToLower(word) == "sharbert" || strings.ToLower(word) == "fornax" {
+			word_list[i] = "****"
+		}
+	}
+	sentence := strings.Join(word_list, " ")
+	return sentence
+}
+
 func jsonHandler(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
 		// these tags indicate how the keys in the JSON should be mapped to the struct fields
@@ -46,7 +64,8 @@ func jsonHandler(w http.ResponseWriter, r *http.Request) {
 
 	type goodReturnVals struct {
 		// the key will be the name of struct field unless you give it an explicit JSON tag
-		Valid bool `json:"valid"`
+		// Valid bool `json:"valid"`
+		Body string `json:"cleaned_body"`
 	}
 
 	type badReturnVals struct {
@@ -78,8 +97,11 @@ func jsonHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write(dat)
 		return
 	}
+
+	sentence := profanity_replacer(params.Body)
+
 	respBody := goodReturnVals{
-		Valid: true,
+		Body: sentence,
 	}
 	dat, _ := json.Marshal(respBody)
 	w.Header().Set("Content-Type", "application/json")
@@ -89,6 +111,16 @@ func jsonHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	godotenv.Load()
+
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	dbQueries := database.New(db)
+
+	if err != nil {
+		fmt.Println(dbQueries)
+	}
+
 	apiCfg := apiConfig{}
 
 	mux := http.NewServeMux()
@@ -109,7 +141,7 @@ func main() {
 		Handler: mux,
 	}
 
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}
